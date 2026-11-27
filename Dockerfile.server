@@ -1,0 +1,32 @@
+# Build the SPA so the API container can also serve the production frontend.
+FROM node:20.19-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY server/package.json ./server/package.json
+COPY web/package.json ./web/package.json
+RUN npm ci
+COPY server ./server
+COPY web ./web
+RUN npm run build -w web
+
+# Production-only dependency tree.
+FROM node:20.19-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY server/package.json ./server/package.json
+COPY web/package.json ./web/package.json
+RUN npm ci --omit=dev
+
+FROM node:20.19-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/server/package.json ./server/package.json
+COPY --from=deps /app/web/package.json ./web/package.json
+COPY server ./server
+COPY --from=build /app/web/dist ./web/dist
+RUN mkdir -p /app/server/uploads /app/server/quarantine && chown -R node:node /app
+USER node
+EXPOSE 3000
+CMD ["node", "server/src/server.js"]

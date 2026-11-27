@@ -1,0 +1,32 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+server/uploads/
+*.log
+.DS_Store
+.vite/
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build files
+dist/
+build/
+
+# Antivirus quarantine
+server/quarantine/
+
+# Test artifacts
+web/test-results/
+playwright-report/
+test-results/
+
+# Logs
+*.log

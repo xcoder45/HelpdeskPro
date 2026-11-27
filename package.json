@@ -1,0 +1,30 @@
+{
+  "name": "helpdesk-pro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HelpDesk Pro - IT Service Management portfolio application",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server && npm run test -w web",
+    "db:create": "npm run db:create -w server",
+    "db:setup": "npm run db:setup -w server",
+    "migrate": "npm run migrate -w server",
+    "seed": "npm run seed -w server",
+    "seed:demo": "npm run seed:demo -w server",
+    "retention": "npm run retention -w server",
+    "e2e": "npm run e2e -w web"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.7"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

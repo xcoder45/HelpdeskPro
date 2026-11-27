@@ -1,0 +1,37 @@
+{
+  "name": "@helpdesk-pro/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --watch-path=src src/server.js",
+    "start": "node src/server.js",
+    "db:create": "node src/db/createDatabases.js",
+    "db:setup": "npm run db:create && npm run migrate && npm run seed",
+    "db:provision": "node src/db/provisionAppRole.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
+    "seed:demo": "node src/db/seedDemo.js",
+    "retention": "node src/jobs/runRetention.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "cookie-parser": "1.4.7",
+    "dotenv": "18.0.10",
+    "express": "5.3.0",
+    "express-rate-limit": "8.7.5",
+    "helmet": "8.3.0",
+    "jsonwebtoken": "9.0.3",
+    "multer": "2.5.0",
+    "nodemailer": "10.6.1",
+    "pg": "8.23.1",
+    "rate-limit-redis": "^6.0.2",
+    "redis": "^6.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "supertest": "7.3.2",
+    "vitest": "5.1.2"
+  }
+}

@@ -143,7 +143,7 @@ In production, bootstrap users are skipped unless `ALLOW_PRODUCTION_BOOTSTRAP_US
 
 ## Operations notes
 
-- Migration runs are opt-in at startup with `RUN_MIGRATIONS_ON_START=true`; seeds remain manual.
+- Migration runs are opt-in at startup with `RUN_MIGRATIONS_ON_START=true`; `SEED_REFERENCE_DATA_ON_START=true` then loads idempotent reference data before Express listens. Startup seeding never creates users; user/demo seeds remain manual.
 - `npm run db:create` creates configured databases; `npm run db:setup` creates, migrates, and seeds.
 - Tests require `TEST_DATABASE_URL` to point to a different database from `DATABASE_URL`.
 - `npm run retention` runs one purge immediately; the server can also schedule it with `RETENTION_ENABLED=true`.

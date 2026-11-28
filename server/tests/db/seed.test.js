@@ -39,6 +39,14 @@ describe('reference seed', () => {
     ]);
   });
 
+  it('never creates users for reference-only startup seeding', async () => {
+    const summary = await seedReferenceData(pool, { includeBootstrapUsers: false });
+
+    expect(summary.usersInserted).toBe(0);
+    const { rowCount } = await pool.query('SELECT 1 FROM users');
+    expect(rowCount).toBe(0);
+  });
+
   it('hashes bootstrap passwords and does not duplicate bootstrap users', async () => {
     await seedReferenceData(pool);
     const { rows } = await pool.query(

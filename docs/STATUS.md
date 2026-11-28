@@ -1,12 +1,12 @@
 # Phase 10 status report
 
-Date: 2026-11-27
+Date: 2026-11-28
 
 ## Completion status
 
-**Phase 10 is complete, and all automated checks pass.** The user-approved scope covered production hardening, account lifecycle, and frontend/E2E upgrades. Phases 1–9 behavior remains intact. Two all-phase reviews found and fixed concrete security, correctness, and documentation defects; the figures below are from the final post-fix verification run. The only area not exercised end-to-end is the production Compose stack, which was configuration-validated but not started locally.
+**Phase 10 is complete, and all automated checks pass.** The user-approved scope covered production hardening, account lifecycle, frontend/E2E upgrades, and Render single-container database initialization. Phases 1–9 behavior remains intact. Two all-phase reviews found and fixed concrete security, correctness, and documentation defects; the figures below are from the final post-fix verification run. The only area not exercised end-to-end is the production Compose stack, which was configuration-validated but not started locally.
 
-No changes are committed; the project is not a Git repository.
+Verification was performed on the local `main` checkout of `xcoder45/HelpdeskPro`; commit and push commands are listed in the deployment report.
 
 ## Delivered documents
 
@@ -17,16 +17,16 @@ No changes are committed; the project is not a Git repository.
 | 3 | [API reference](API_REFERENCE.md) | Complete — lifecycle, session, and retention endpoints |
 | 4 | [Database schema](DATABASE_SCHEMA.md) | Complete — migrations 007–012, sessions, auth tokens, retention function, retention owner role |
 | 5 | [User guide](USER_GUIDE.md) | Complete — reset, verification, sessions, deep links |
-| 6 | [Deployment guide](DEPLOYMENT.md) | Complete — production compose, separate migration/API DB roles, Redis, ClamAV |
+| 6 | [Deployment guide](DEPLOYMENT.md) | Complete — production compose, separate migration/API DB roles, Redis, ClamAV, Render single-container startup |
 | 7 | [Security notes](SECURITY.md) | Complete — updated controls and residual risks |
-| 8 | [Testing report](TESTING.md) | Complete — 171 server, 137 web, 4 Playwright checks |
+| 8 | [Testing report](TESTING.md) | Complete — 180 server, 137 web, 4 Playwright checks |
 | 9 | [Phase 10 status](STATUS.md) | Complete — this report |
 
 ## Production hardening
 
 - Added `Dockerfile.server`, `Dockerfile.web`, `web/nginx.conf`, `.dockerignore`, and `docker-compose.prod.yml`.
 - Production compose builds the SPA, runs the API behind nginx, and provides PostgreSQL, Redis, and ClamAV services. A one-shot migration service applies migrations and provisions a separate least-privileged `helpdesk_app` role; the API connects only with that role. Quarantine and uploads use separate volumes, the Redis healthcheck uses the configured password, ClamAV has time to load signatures, and PostgreSQL is not exposed on the host.
-- Added `RUN_MIGRATIONS_ON_START`; the server applies checksummed migrations before listening and exits on failure.
+- Added `RUN_MIGRATIONS_ON_START` and `SEED_REFERENCE_DATA_ON_START`; the server applies checksummed migrations, then idempotent reference data with users disabled, before listening. Any failure exits without starting Express.
 - Rate limiting uses isolated auth/ticket Redis stores when `REDIS_URL` is configured, with an independent in-memory fallback per store for local development, tests, and Redis outages.
 - Added attachment quotas (`TICKET_UPLOAD_QUOTA_BYTES`, `USER_UPLOAD_QUOTA_BYTES`) checked inside the ticket transaction before files are written, with an advisory lock for the user quota.
 - Added fail-closed ClamAV `INSTREAM` scanning when `AV_ENABLED=true`; rejected files are quarantined outside `UPLOAD_DIR` under `AV_QUARANTINE_DIR` and never stored as attachments. Startup validation rejects a quarantine path nested inside the upload directory.
@@ -61,7 +61,7 @@ No changes are committed; the project is not a Git repository.
 
 | Check | Result |
 |---|---|
-| Server tests | 26 files / 171 tests passed |
+| Server tests | 28 files / 180 tests passed |
 | Web tests | 5 files / 137 tests passed |
 | Playwright E2E | 4 tests passed in local Chrome |
 | `npm run build` | Passed; Recharts emitted as a separate chunk |

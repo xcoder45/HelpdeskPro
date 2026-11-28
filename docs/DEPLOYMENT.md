@@ -70,6 +70,7 @@ Validated by `server/src/config/env.js`. Invalid configuration fails startup wit
 | `EMAIL_VERIFICATION_TTL` | Verification-link lifetime; default `24h` |
 | `REDIS_URL` | `redis:`/`rediss:` URL; when absent, rate limits use an in-memory store |
 | `RUN_MIGRATIONS_ON_START` | Boolean; default `false` |
+| `SEED_REFERENCE_DATA_ON_START` | Boolean; default `false`; requires `RUN_MIGRATIONS_ON_START=true`, seeds roles/SLA rules/categories/subcategories only, and never creates users |
 | `RETENTION_ENABLED` | Boolean; default `false`; enables the scheduled purge |
 | `AUDIT_RETENTION_DAYS` | Minimum 1; default `365` |
 | `TICKET_HISTORY_RETENTION_DAYS` | Minimum 1; default `365` |
@@ -109,7 +110,7 @@ cmd /c npm start
 
 `npm run build` writes `web/dist`. `npm start` runs `server/src/server.js`, which serves both `/api` and the built SPA when `NODE_ENV=production` and `web/dist/index.html` exists. If the built file is absent, static serving is silently skipped.
 
-The server applies migrations before listening only when `RUN_MIGRATIONS_ON_START=true`. Seeds remain manual. On `SIGINT`/`SIGTERM`, the server closes the HTTP listener, retention timer, Redis client, and database pool.
+The server applies migrations before listening when `RUN_MIGRATIONS_ON_START=true`, then loads idempotent reference data when `SEED_REFERENCE_DATA_ON_START=true`. Both steps must finish before `app.listen`; any failure closes the pool, logs a generic startup error, and exits without starting Express. Startup seeding never creates bootstrap, admin, or demo users. On `SIGINT`/`SIGTERM`, the server closes the HTTP listener, retention timer, Redis client, and database pool.
 
 ## Production compose stack
 
@@ -134,6 +135,30 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 
 The supplied compose stack was configuration-validated but not fully started in the local verification environment. Redis and ClamAV are single services; scale them separately or use managed equivalents for high availability.
 
+## Render single-container deployment
+
+The Render Web Service builds `Dockerfile.server`. Leave Render's **Docker Command** blank so the image's `CMD ["node", "server/src/server.js"]` is used. That entrypoint now initializes the database before Express listens; there is no Compose `migrate` service on Render.
+
+Startup deliberately does **not** call `provisionAppRole.js`. That script executes `CREATE ROLE`/`ALTER ROLE`/`GRANT` and a second migration, so it requires an owner/`CREATEROLE` role and would duplicate work. Verify the role in your existing `DATABASE_URL` before changing it: Neon's default project owner has `CREATEROLE` through `neon_superuser`, while a role created with SQL or `neon roles create --access` usually does not.
+
+Set these Render environment variables (keep secret values in Render only):
+
+| Variable | Value / format |
+|---|---|
+| `DATABASE_URL` | Existing Neon `postgres://…` or `postgresql://…` connection string. Keep the current credential unless verification shows it cannot apply migration 011/012; startup uses this same value for migrations, seed, and API traffic. |
+| `JWT_SECRET` | Existing unique random value; at least 32 non-placeholder characters in production |
+| `APP_BASE_URL` | `https://helpdeskpro-tnu6.onrender.com` |
+| `NODE_ENV` | `production` (also set by `Dockerfile.server`) |
+| `RUN_MIGRATIONS_ON_START` | `true` |
+| `SEED_REFERENCE_DATA_ON_START` | `true` |
+| `TRUST_PROXY_HOPS` | `1` |
+| `ALLOW_PRODUCTION_BOOTSTRAP_USERS` | Do not set, or set `false` |
+| `ALLOW_PRODUCTION_DEMO_DATA` | Do not set, or set `false` |
+
+Do not override Render's injected `PORT`, and do not add Compose-only variables such as `POSTGRES_*`, `APP_DATABASE_USER`, or `APP_DATABASE_PASSWORD` for this deployment. No demo/default admin user is auto-created; provision real users explicitly after login works.
+
+After deployment, confirm the Render log contains `[helpdesk-pro] migrations verified`, `[helpdesk-pro] reference data verified`, and `[helpdesk-pro] server listening...` in that order. Then check `GET /api/health`, register/login, and query reference counts (expected: 3 roles, 4 SLA rules, 6 categories, 16 subcategories). Repeated deploys must leave those counts unchanged.
+
 ## Reverse proxy and HTTPS
 
 The application assumes same-origin API access. Static hosting without the Express server must either:
@@ -155,7 +180,7 @@ Example proxy responsibilities:
 
 ## Database and storage operations
 
-- Migration runs are opt-in at startup with `RUN_MIGRATIONS_ON_START=true`; seeds remain manual.
+- Migration runs are opt-in at startup with `RUN_MIGRATIONS_ON_START=true`; `SEED_REFERENCE_DATA_ON_START=true` then loads reference data without users. Both steps are fail-fast and ordered before `app.listen`.
 - `npm run db:create` creates configured databases; `npm run db:setup` creates, migrates, and seeds.
 - `npm run migrate` applies pending migrations on demand.
 - `npm run db:provision` applies migrations, then creates/updates the least-privileged `APP_DATABASE_USER` role used by the API.

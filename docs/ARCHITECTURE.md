@@ -135,6 +135,6 @@ New -> Assigned -> In Progress -> Pending -> Resolved -> Closed
 
 ## Deployment topology
 
-Development uses two processes started by `npm run dev` through `concurrently`. `docker-compose.yml` provides local PostgreSQL. `docker-compose.prod.yml` builds `Dockerfile.server` and `Dockerfile.web`, adds Redis and ClamAV, and puts nginx in front of the SPA/API. nginx serves SPA routes with an `index.html` fallback and proxies `/api` to the Node service; the API also remains capable of serving `web/dist` directly. Migrations can run on startup with `RUN_MIGRATIONS_ON_START=true`.
+Development uses two processes started by `npm run dev` through `concurrently`. `docker-compose.yml` provides local PostgreSQL. `docker-compose.prod.yml` builds `Dockerfile.server` and `Dockerfile.web`, adds Redis and ClamAV, and puts nginx in front of the SPA/API. nginx serves SPA routes with an `index.html` fallback and proxies `/api` to the Node service; the API also remains capable of serving `web/dist` directly. In the single-container Render deployment, `Dockerfile.server` runs migrations (`RUN_MIGRATIONS_ON_START=true`) and idempotent reference seeding (`SEED_REFERENCE_DATA_ON_START=true`) before Express listens; the Compose stack keeps both flags false because its one-shot `migrate` service already provisions schema and role.
 
 See [Deployment](DEPLOYMENT.md) for environment variables and operational steps.

@@ -1,6 +1,6 @@
 # Testing report
 
-Final verification was run on 2026-11-27 after Phase 10 production hardening, account lifecycle, frontend routing, Playwright E2E work, and two successive all-phase bug/security reviews and fixes. [Phase 10 status](STATUS.md) records the delivered scope and residual risks.
+Final verification was run on 2026-11-28 after Phase 10 production hardening, account lifecycle, frontend routing, Playwright E2E work, two all-phase bug/security reviews, and Render single-container startup initialization. [Phase 10 status](STATUS.md) records the delivered scope and residual risks.
 
 ## Commands
 
@@ -21,7 +21,7 @@ The E2E command uses local Chrome. Set `E2E_BASE_URL` to test another running in
 
 | Check | Result |
 |---|---|
-| Server tests | **26 files passed, 171 tests passed** |
+| Server tests | **28 files passed, 180 tests passed** |
 | Web tests | **5 files passed, 137 tests passed** |
 | Playwright E2E | **4 tests passed, 0 failed** |
 | `npm run build` | Passed |
@@ -34,10 +34,10 @@ Build output:
 ```text
 dist/index.html                           0.53 kB │ gzip:   0.31 kB
 dist/assets/index-*.css                  16.04 kB │ gzip:   4.05 kB
-dist/assets/StaffApp-*.js                72.13 kB │ gzip:  13.04 kB
-dist/assets/AnalyticsPanel-*.js         482.85 kB │ gzip: 136.17 kB
-dist/assets/index-*.js                  498.50 kB │ gzip: 145.81 kB
-✓ built in 570ms
+dist/assets/StaffApp-*.js                45.03 kB │ gzip:  10.18 kB
+dist/assets/index-*.js                  269.78 kB │ gzip:  81.92 kB
+dist/assets/AnalyticsPanel-*.js         457.88 kB │ gzip: 128.51 kB
+✓ built in 1.44s
 ```
 
 Recharts is no longer in the initial entry chunk: `AnalyticsPanel-*.js` is loaded only when the admin opens Analytics, and `StaffApp-*.js` is loaded after staff sign-in.
@@ -66,6 +66,7 @@ Coverage includes all Phase 1–9 areas plus:
 - Staff recipients are notified when a requester replies; the recipient query no longer generates an invalid `falser` predicate.
 - Attachment quota enforcement, fail-closed AV rejection with quarantine, and Office/text MIME spoofing rejection, including generic-ZIP/OLE2 spoofing and required Office part checks.
 - New migration/schema expectations for 009 through 012.
+- Startup initialization ordering and failure behavior: migrations precede reference seeding, bootstrap users are excluded, Express is not created or listened on failure, and the pool is closed before exit.
 
 ### Web tests
 

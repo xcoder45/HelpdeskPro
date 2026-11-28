@@ -93,6 +93,7 @@ const schema = z.object({
   EMAIL_VERIFICATION_TTL: durationFromEnv.default('24h'),
   REDIS_URL: redisUrl.optional(),
   RUN_MIGRATIONS_ON_START: booleanFromEnv.default(false),
+  SEED_REFERENCE_DATA_ON_START: booleanFromEnv.default(false),
   RETENTION_ENABLED: booleanFromEnv.default(false),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).default(365),
   TICKET_HISTORY_RETENTION_DAYS: z.coerce.number().int().min(1).default(365),

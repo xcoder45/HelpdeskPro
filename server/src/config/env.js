@@ -79,15 +79,27 @@ const redisUrl = z.string().refine((value) => {
   }
 }, 'must be a redis or rediss URL');
 
+const vercelBaseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined;
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  VERCEL_ENV: z.enum(['development', 'preview', 'production']).optional(),
+  VERCEL_URL: z.string().min(1).optional(),
   DATABASE_URL: postgresUrl,
   TEST_DATABASE_URL: postgresUrl.optional(),
+  DATABASE_POOL_MAX: z.coerce.number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(process.env.VERCEL_ENV ? 1 : 10),
   JWT_SECRET: z.string().min(16, 'must be at least 16 characters'),
   JWT_EXPIRES_IN: durationFromEnv.default('1d'),
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).optional(),
-  APP_BASE_URL: httpUrl.default('http://localhost:5173'),
+  CRON_SECRET: z.string().min(16).optional(),
+  TRUST_PROXY_HOPS: process.env.VERCEL_ENV
+    ? z.coerce.number().int().min(0).default(1)
+    : z.coerce.number().int().min(0).optional(),
+  APP_BASE_URL: httpUrl.default(vercelBaseUrl ?? 'http://localhost:5173'),
   REQUIRE_EMAIL_VERIFICATION: booleanFromEnv.default(false),
   PASSWORD_RESET_TTL: durationFromEnv.default('1h'),
   EMAIL_VERIFICATION_TTL: durationFromEnv.default('24h'),
@@ -98,8 +110,14 @@ const schema = z.object({
   AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).default(365),
   TICKET_HISTORY_RETENTION_DAYS: z.coerce.number().int().min(1).default(365),
   RETENTION_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(86_400_000),
+  ATTACHMENT_STORAGE: z.enum(['local', 'blob']).default('local'),
+  BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
   UPLOAD_DIR: z.string().default('./uploads'),
-  MAX_UPLOAD_BYTES: z.coerce.number().int().min(1024).max(104_857_600).default(5242880),
+  MAX_UPLOAD_BYTES: z.coerce.number()
+    .int()
+    .min(1024)
+    .max(104_857_600)
+    .default(process.env.VERCEL_ENV ? 4_194_304 : 5_242_880),
   TICKET_UPLOAD_QUOTA_BYTES: z.coerce.number().int().positive().default(52_428_800),
   USER_UPLOAD_QUOTA_BYTES: z.coerce.number().int().positive().default(104_857_600),
   AV_ENABLED: booleanFromEnv.default(false),
@@ -156,6 +174,48 @@ const schema = z.object({
   {
     path: ['AV_QUARANTINE_DIR'],
     message: 'must be outside UPLOAD_DIR so rejected files are never confused with attachments'
+  }
+).refine(
+  (data) => data.ATTACHMENT_STORAGE !== 'blob' || Boolean(data.BLOB_READ_WRITE_TOKEN),
+  {
+    path: ['ATTACHMENT_STORAGE'],
+    message: 'blob storage requires BLOB_READ_WRITE_TOKEN'
+  }
+).refine(
+  (data) => data.VERCEL_ENV !== 'production' || data.NODE_ENV === 'production',
+  {
+    path: ['NODE_ENV'],
+    message: 'must be production when VERCEL_ENV=production so production secret rules apply'
+  }
+).refine(
+  (data) => data.VERCEL_ENV !== 'production' || Boolean(data.CRON_SECRET),
+  {
+    path: ['CRON_SECRET'],
+    message: 'must be set for Vercel production so scheduled retention is authenticated'
+  }
+).refine(
+  (data) => !data.VERCEL_ENV || Boolean(data.REDIS_URL),
+  {
+    path: ['REDIS_URL'],
+    message: 'must be set on Vercel so rate limits are shared across function instances'
+  }
+).refine(
+  (data) => !data.VERCEL_ENV || data.ATTACHMENT_STORAGE === 'blob',
+  {
+    path: ['ATTACHMENT_STORAGE'],
+    message: 'must be blob on Vercel because the function filesystem is not persistent'
+  }
+).refine(
+  (data) => !data.VERCEL_ENV || data.AV_ENABLED,
+  {
+    path: ['AV_ENABLED'],
+    message: 'must be enabled on Vercel so uploads retain malware scanning'
+  }
+).refine(
+  (data) => !data.VERCEL_ENV || Boolean(data.CLAMAV_HOST),
+  {
+    path: ['CLAMAV_HOST'],
+    message: 'must be set on Vercel to a network-reachable ClamAV service when AV_ENABLED=true'
   }
 );
 

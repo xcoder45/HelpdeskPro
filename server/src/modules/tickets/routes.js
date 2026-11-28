@@ -48,7 +48,8 @@ export function createTicketsRouter({
   writeRateLimiter = ticketWriteRateLimiter,
   notifier = notificationService,
   uploadDirectory = env.UPLOAD_DIR,
-  attachmentScanner
+  attachmentScanner,
+  attachmentStore
 } = {}) {
   const router = Router();
   const employeeOnly = requireRole('employee');
@@ -105,7 +106,8 @@ export function createTicketsRouter({
       database,
       writeRateLimiter,
       directory: uploadDirectory,
-      ...(attachmentScanner ? { scanner: attachmentScanner } : {})
+      ...(attachmentScanner ? { scanner: attachmentScanner } : {}),
+      ...(attachmentStore ? { store: attachmentStore } : {})
     })
   );
 

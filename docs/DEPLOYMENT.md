@@ -60,27 +60,32 @@ Validated by `server/src/config/env.js`. Invalid configuration fails startup wit
 | Variable | Default / notes |
 |---|---|
 | `NODE_ENV` | `development`, `test`, or `production`; default `development` |
-| `PORT` | Integer 1–65535; default `3000` |
+| `PORT` | Integer 1–65535; default `3000`; not used by Vercel Functions |
 | `TEST_DATABASE_URL` | Required for tests; must be a different database from `DATABASE_URL` |
 | `JWT_EXPIRES_IN` | Positive duration such as `1d`, `12h`, `30m`, or seconds; default `1d` |
-| `TRUST_PROXY_HOPS` | Non-negative integer; set behind a reverse proxy so `req.ip` is correct |
+| `VERCEL_ENV` | Vercel-injected `development`, `preview`, or `production`; enables Vercel-specific validation |
+| `DATABASE_POOL_MAX` | Pool size per process; default `10`, or `1` when `VERCEL_ENV` is set |
+| `TRUST_PROXY_HOPS` | Non-negative integer; set behind a reverse proxy so `req.ip` is correct. Defaults to `1` on Vercel |
 | `APP_BASE_URL` | Public origin used in reset/verification email links; default `http://localhost:5173` |
 | `REQUIRE_EMAIL_VERIFICATION` | Boolean; default `false` |
 | `PASSWORD_RESET_TTL` | Reset-link lifetime; default `1h` |
 | `EMAIL_VERIFICATION_TTL` | Verification-link lifetime; default `24h` |
-| `REDIS_URL` | `redis:`/`rediss:` URL; when absent, rate limits use an in-memory store |
+| `REDIS_URL` | `redis:`/`rediss:` URL; when absent, rate limits use an in-memory store. Required on Vercel |
+| `CRON_SECRET` | Shared secret for `GET /api/cron/retention`; at least 16 characters and required for Vercel production |
 | `RUN_MIGRATIONS_ON_START` | Boolean; default `false` |
 | `SEED_REFERENCE_DATA_ON_START` | Boolean; default `false`; requires `RUN_MIGRATIONS_ON_START=true`, seeds roles/SLA rules/categories/subcategories only, and never creates users |
 | `RETENTION_ENABLED` | Boolean; default `false`; enables the scheduled purge |
 | `AUDIT_RETENTION_DAYS` | Minimum 1; default `365` |
 | `TICKET_HISTORY_RETENTION_DAYS` | Minimum 1; default `365` |
 | `RETENTION_INTERVAL_MS` | Minimum `3600000`; default `86400000` |
-| `UPLOAD_DIR` | Local attachment directory; default `./uploads` |
-| `MAX_UPLOAD_BYTES` | Per-file cap, 1024–104857600 bytes; default `5242880` (5 MiB). Must not exceed either aggregate quota |
+| `UPLOAD_DIR` | Local attachment directory; default `./uploads`. Ignored when `ATTACHMENT_STORAGE=blob` |
+| `ATTACHMENT_STORAGE` | `local` or `blob`; must be `blob` on Vercel |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob read/write token for the private store |
+| `MAX_UPLOAD_BYTES` | Per-file cap, 1024–104857600 bytes; default `5242880` (5 MiB), or `4194304` (4 MiB) on Vercel. Must not exceed either aggregate quota |
 | `TICKET_UPLOAD_QUOTA_BYTES` | Positive integer aggregate ticket quota; default `52428800` (50 MiB) |
 | `USER_UPLOAD_QUOTA_BYTES` | Positive integer aggregate user quota; default `104857600` (100 MiB) |
-| `AV_ENABLED` | Boolean; default `false`; fail-closed ClamAV scanning when enabled |
-| `CLAMAV_HOST` | Required when AV is enabled; production compose sets `clamav` |
+| `AV_ENABLED` | Boolean; default `false`; fail-closed ClamAV scanning when enabled. Must be `true` on Vercel |
+| `CLAMAV_HOST` | Required when AV is enabled; production compose sets `clamav`. On Vercel it must be a network-reachable scanner |
 | `CLAMAV_PORT` | Integer 1–65535; default `3310` |
 | `AV_SCAN_TIMEOUT_MS` | Minimum 100; default `5000` |
 | `AV_QUARANTINE_DIR` | Quarantine directory for rejected files; default `./quarantine`. Must be outside `UPLOAD_DIR` |
@@ -159,6 +164,64 @@ Do not override Render's injected `PORT`, and do not add Compose-only variables 
 
 After deployment, confirm the Render log contains `[helpdesk-pro] migrations verified`, `[helpdesk-pro] reference data verified`, and `[helpdesk-pro] server listening...` in that order. Then check `GET /api/health`, register/login, and query reference counts (expected: 3 roles, 4 SLA rules, 6 categories, 16 subcategories). Repeated deploys must leave those counts unchanged.
 
+## Vercel single-project multi-service deployment
+
+The root `vercel.json` uses Vercel Services (Beta on all plans) to deploy both applications from one project. It is additive: Render and Docker continue to use `server/src/server.js` and the existing Dockerfiles.
+
+| Service | Root | Build / runtime | Public route |
+|---|---|---|---|
+| `api` | `server` | Express app exported from `server/src/index.js`; no `app.listen()` | `/api/(.*)` |
+| `web` | `web` | Vite build to `web/dist` | `/(.*)` |
+
+Top-level rewrites expose the services. Each service receives the original request path, so all existing Express routes keep their `/api/...` prefixes. The `web` service has its own `/(.*)` → `/index.html` rewrite for SPA deep links; static asset files are resolved before that rewrite. Because `express.static()` is ignored on Vercel, the API service explicitly sets `serveStatic: false` and never serves the SPA.
+
+### Vercel prerequisites
+
+Set these as project environment variables (scoped to the relevant environments). Do not put secret values in the repository.
+
+| Variable | Vercel requirement |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection URL. Use a role that can query the schema; migrations are a separate step below. |
+| `JWT_SECRET` | Unique random value of at least 32 non-placeholder characters. |
+| `REDIS_URL` | Required because function instances have separate in-memory rate-limit stores. |
+| `CRON_SECRET` | Required in Vercel production; Vercel sends `Authorization: Bearer $CRON_SECRET`. |
+| `ATTACHMENT_STORAGE` | `blob`. Local disk is not persistent on Vercel. |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob read/write token for private attachments and quarantine objects. |
+| `AV_ENABLED` / `CLAMAV_HOST` | `true` and a network-reachable host. There is no ClamAV sidecar on Vercel. |
+| `APP_BASE_URL` | Canonical HTTPS origin for lifecycle email links. |
+| `TRUST_PROXY_HOPS` | Defaults to `1` when `VERCEL_ENV` is present; override only if Vercel is behind additional trusted proxies. |
+| `DATABASE_POOL_MAX` | Defaults to `1` per function instance on Vercel. Increase only with a database pooler sized for the concurrency. |
+| `MAX_UPLOAD_BYTES` | Defaults to `4194304` (4 MiB) on Vercel. Vercel Functions accept 4.5 MB by default; larger uploads require the separate 20 MB beta opt-in and corresponding project settings. |
+| `SMTP_HOST`, `SMTP_FROM`, etc. | Configure if email notifications are required. Delivery remains synchronous and best-effort. |
+
+Leave `RUN_MIGRATIONS_ON_START`, `SEED_REFERENCE_DATA_ON_START`, and `RETENTION_ENABLED` unset or `false` on Vercel. The serverless entrypoint does not run migrations, seed data, or an interval timer.
+
+### Database bootstrap (manual, non-destructive)
+
+Before sending traffic to Vercel, apply schema migrations and idempotent reference data from a trusted local or CI environment that can reach the same database:
+
+```bat
+cmd /c npm run migrate
+cmd /c npm run seed
+```
+
+`npm run migrate` reads SQL from `server/src/migrations`, applies checksummed migrations, and must run as a role with `CREATEROLE` or owner rights for migrations 011 and 012. `npm run seed` loads roles, SLA rules, categories, and subcategories; it never creates users unless explicit bootstrap flags are enabled. Do not set `ALLOW_PRODUCTION_BOOTSTRAP_USERS` or `ALLOW_PRODUCTION_DEMO_DATA`, and do not run database reset/drop commands. Re-running these commands is idempotent.
+
+### Retention scheduling
+
+`vercel.json` declares a daily cron for `GET /api/cron/retention` at `03:00` UTC. The route verifies the bearer token with a timing-safe comparison before calling the same `runRetention()` function used by Render/Docker. The long-lived `startRetentionJob()` timer remains only in `server/src/server.js` for container deployments. Vercel Cron schedules are UTC and use the production deployment path, so the top-level `/api/(.*)` rewrite is required.
+
+### Vercel limitations and blockers
+
+- Vercel Services is Beta and its configuration schema may change; verify the deployment build after upgrading the CLI.
+- The API filesystem is read-only/ephemeral. Attachments and quarantined files use private Vercel Blob objects; blob URLs are never returned to clients and downloads still pass through authenticated API routes.
+- ClamAV scanning uses raw TCP `INSTREAM`. A reachable remote scanner must be provisioned; a local `clamd` sidecar is unavailable.
+- Function instances cannot keep reliable `setInterval` jobs. Retention uses the cron route above.
+- In-memory rate limits are not shared. `REDIS_URL` is mandatory on Vercel.
+- The default Vercel request-body cap is 4.5 MB, below the 5 MiB local default. Keep `MAX_UPLOAD_BYTES` at 4 MiB or enable the 20 MB beta before raising it.
+- There is no CORS middleware. Keep browser traffic same-origin through the top-level rewrites rather than calling the API domain directly.
+- SMTP delivery is synchronous with no queue or retry; use an external mail provider/API if deliverability guarantees are required.
+
 ## Reverse proxy and HTTPS
 
 The application assumes same-origin API access. Static hosting without the Express server must either:
@@ -208,6 +271,8 @@ Attachments are capped per file and by aggregate ticket/user quotas, with declar
 - [ ] `APP_BASE_URL` set to the public origin
 - [ ] `UPLOAD_DIR` and `AV_QUARANTINE_DIR` persisted and writable
 - [ ] Redis configured for shared rate limits in multi-replica deployments
+- [ ] On Vercel: Blob store, Redis, remote ClamAV, and `CRON_SECRET` configured
+- [ ] On Vercel: migrations/reference data applied manually before traffic and retention cron verified
 - [ ] ClamAV reachable when `AV_ENABLED=true`
 - [ ] Retention schedule and `*_RETENTION_DAYS` reviewed
 - [ ] SMTP configured if email notifications are required
@@ -218,3 +283,5 @@ Attachments are capped per file and by aggregate ticket/user quotas, with declar
 ## Known deployment gaps
 
 The production compose is validated by `docker compose config` but was not started end-to-end locally. It uses single Redis and ClamAV services, local attachment storage, and synchronous SMTP delivery. Those are scaling and availability decisions, not incomplete Phase 10 features.
+
+No Vercel deployment was performed while preparing this configuration. Before production traffic, provision Vercel Blob, managed Redis, and a network-reachable ClamAV endpoint; set `CRON_SECRET` and `APP_BASE_URL`; apply migrations/reference data manually; and verify the retention cron and an authenticated attachment upload/download with a preview deployment. Services and the 20 MB request-body increase are Beta features that may require account-level opt-in.

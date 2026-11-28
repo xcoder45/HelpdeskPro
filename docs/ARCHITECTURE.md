@@ -137,4 +137,6 @@ New -> Assigned -> In Progress -> Pending -> Resolved -> Closed
 
 Development uses two processes started by `npm run dev` through `concurrently`. `docker-compose.yml` provides local PostgreSQL. `docker-compose.prod.yml` builds `Dockerfile.server` and `Dockerfile.web`, adds Redis and ClamAV, and puts nginx in front of the SPA/API. nginx serves SPA routes with an `index.html` fallback and proxies `/api` to the Node service; the API also remains capable of serving `web/dist` directly. In the single-container Render deployment, `Dockerfile.server` runs migrations (`RUN_MIGRATIONS_ON_START=true`) and idempotent reference seeding (`SEED_REFERENCE_DATA_ON_START=true`) before Express listens; the Compose stack keeps both flags false because its one-shot `migrate` service already provisions schema and role.
 
+Vercel uses the same repository from one project with two Services: `server/src/index.js` exports the Express app as a function without a listener, and the Vite service serves `web/dist`. Top-level rewrites route `/api/*` to Express and everything else to the SPA; a protected GET route handles retention on Vercel Cron instead of an in-process timer. Migrations and reference data remain explicit operator steps, and attachments/quarantine use private Vercel Blob storage.
+
 See [Deployment](DEPLOYMENT.md) for environment variables and operational steps.

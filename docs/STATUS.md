@@ -95,6 +95,12 @@ These remain explicit operational or product decisions; they are not outstanding
 - No account lockout beyond rate limiting, penetration test, or load test was performed.
 - The production compose was configuration-validated but not started end-to-end locally.
 
+## Vercel deployment preparation
+
+A single-project Vercel Services configuration is included but was not deployed. The root `vercel.json` routes `/api/*` to an Express function exported from `server/src/index.js` and all other paths to the Vite service. Retention is available through a secret-protected cron route, and attachment storage is abstracted so Vercel can use private Blob storage while Docker/Render keep local files. Render and Docker startup behavior is unchanged.
+
+Vercel production still requires operator provisioning: Blob, Redis, a network-reachable ClamAV service, `CRON_SECRET`, canonical `APP_BASE_URL`, and an explicit non-destructive migration/reference-seed run before traffic. Neither production settings nor the Neon database were changed while preparing this configuration.
+
 ## Acceptance conclusion
 
 Phase 10 deliverables are complete, and no implementation or test failures remain after the all-phase reviews. The previously accepted Phase 9 gaps for shared rate limiting, account recovery, per-session revocation, containerization, migration-on-start, attachment scanning/quotas, retention, code splitting, and browser E2E are implemented. Dashboard and chart figures remain database-driven. The production Compose stack is configuration-validated only; starting it end-to-end in a real environment remains the final deployment acceptance step.

@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
 import { env } from '../../config/env.js';
 import { withTransaction } from '../../db/transaction.js';
+import { attachmentPath, createAttachmentStore } from '../../services/attachmentStore.js';
 import { recordAudit } from '../../services/audit.js';
 import { scanBuffer } from '../../services/antivirus.js';
 import { badRequest, forbidden, notFoundError, unprocessable } from '../../utils/errors.js';
 import { findTicket, lockTicket } from '../tickets/service.js';
+
+export { attachmentPath };
 
 const STAFF_ROLES = ['agent', 'admin'];
 const MAX_SIZE = env.MAX_UPLOAD_BYTES;
@@ -158,29 +159,6 @@ function storedFileName(mimeType) {
   return `${randomUUID()}${EXTENSION_BY_MIME[mimeType] ?? '.bin'}`;
 }
 
-async function quarantineRejectedFile(buffer, originalName, quarantineDirectory = env.AV_QUARANTINE_DIR) {
-  try {
-    const directory = resolve(quarantineDirectory);
-    const suffix = safeOriginalName(originalName).split('.').pop().slice(0, 12);
-    const name = `${randomUUID()}${suffix ? `.${suffix}` : ''}.quarantine`;
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, name), buffer, { flag: 'wx' });
-  } catch (error) {
-    console.warn('[attachments] quarantine write failed:', error?.message ?? error);
-  }
-}
-
-function resolveStoredPath(directory, storedName) {
-  if (!/^[a-f0-9-]{36}(\.[a-z0-9]+)?$/.test(storedName)) {
-    throw badRequest('Invalid stored attachment name');
-  }
-  return join(resolve(directory), storedName);
-}
-
-export function attachmentPath(directory, storedName) {
-  return resolveStoredPath(resolve(directory), storedName);
-}
-
 export function formatAttachment(row) {
   return {
     id: Number(row.id),
@@ -250,9 +228,11 @@ export async function uploadAttachment(
     directory = env.UPLOAD_DIR,
     scanner = scanBuffer,
     avEnabled = env.AV_ENABLED,
-    quarantineDirectory = env.AV_QUARANTINE_DIR
+    quarantineDirectory = env.AV_QUARANTINE_DIR,
+    store
   } = {}
 ) {
+  const attachmentStore = store ?? createAttachmentStore({ directory, quarantineDirectory });
   const upload = validateUpload(file);
   await findTicket(database, ticketId, actor);
 
@@ -261,21 +241,22 @@ export async function uploadAttachment(
     try {
       verdict = await scanner(upload.buffer);
     } catch (error) {
-      await quarantineRejectedFile(upload.buffer, upload.originalName, quarantineDirectory);
+      await attachmentStore.quarantine({ buffer: upload.buffer, originalName: upload.originalName });
       throw error;
     }
     if (!verdict?.clean) {
-      await quarantineRejectedFile(upload.buffer, upload.originalName, quarantineDirectory);
+      await attachmentStore.quarantine({ buffer: upload.buffer, originalName: upload.originalName });
       throw unprocessable('The file was rejected by the virus scanner');
     }
   }
 
   const storedName = storedFileName(upload.mimeType);
-  const targetDirectory = resolve(directory);
-  const storedPath = resolveStoredPath(targetDirectory, storedName);
-  let written = false;
+  let stored = false;
 
   try {
+    await attachmentStore.put({ storedName, buffer: upload.buffer, contentType: upload.mimeType });
+    stored = true;
+
     return await withTransaction(database, async (client) => {
       const ticket = await lockTicket(client, ticketId, actor);
       if (ticket.status === 'Closed') {
@@ -303,10 +284,6 @@ export async function uploadAttachment(
       if (Number(userUsage[0].bytes) + upload.size > env.USER_UPLOAD_QUOTA_BYTES) {
         throw unprocessable('Your attachment storage quota has been reached');
       }
-
-      await mkdir(targetDirectory, { recursive: true });
-      await writeFile(storedPath, upload.buffer, { flag: 'wx' });
-      written = true;
 
       const inserted = await client.query(
         `INSERT INTO attachments (
@@ -339,7 +316,7 @@ export async function uploadAttachment(
       return formatAttachment(rows[0]);
     });
   } catch (error) {
-    if (written) await unlink(storedPath).catch(() => {});
+    if (stored) await attachmentStore.remove({ storedName });
     throw error;
   }
 }
@@ -368,8 +345,9 @@ export async function deleteAttachment(
   attachmentId,
   actor,
   ipAddress = null,
-  { directory = env.UPLOAD_DIR } = {}
+  { directory = env.UPLOAD_DIR, store } = {}
 ) {
+  const attachmentStore = store ?? createAttachmentStore({ directory });
   const deleted = await withTransaction(database, async (client) => {
     const ticket = await lockTicket(client, ticketId, actor);
     if (ticket.status === 'Closed') {
@@ -409,11 +387,13 @@ export async function deleteAttachment(
     return rows[0];
   });
 
-  await unlink(resolveStoredPath(resolve(directory), deleted.stored_name)).catch((error) => {
+  try {
+    await attachmentStore.remove({ storedName: deleted.stored_name });
+  } catch (error) {
     console.warn('[attachments] stored file cleanup failed', {
       attachmentId: Number(deleted.id),
       message: error?.message ?? error
     });
-  });
+  }
   return { deleted: true };
 }

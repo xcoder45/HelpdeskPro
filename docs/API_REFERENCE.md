@@ -54,6 +54,7 @@ The frontend handles this automatically.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Database connectivity check; returns `{success:true,data:{status:'ok',database:'ok'}}` |
+| GET | `/cron/retention` | Vercel Cron target; requires `Authorization: Bearer <CRON_SECRET>` and runs one retention purge |
 | GET | `/auth/csrf` | Returns the current CSRF token |
 | POST | `/auth/register` | Creates an employee account; returns `{user,csrfToken,requiresVerification}` and sets cookies when verification is not required |
 | POST | `/auth/login` | Authenticates; returns `{user,csrfToken}` and creates a tracked session |
@@ -61,6 +62,8 @@ The frontend handles this automatically.
 | POST | `/auth/password-reset/confirm` | `{token,password,confirmPassword}`; revokes all sessions and increments `token_version` |
 | POST | `/auth/verification/resend` | Generic acceptance response; emails a fresh verification link |
 | POST | `/auth/verification/confirm` | `{token}`; marks the address verified |
+
+`/cron/retention` is called by Vercel Cron with the `x-vercel-cron-schedule` header and `Authorization: Bearer $CRON_SECRET`. A missing or incorrect secret returns `401`; the timer-based retention job in Render/Docker does not call this endpoint.
 
 Registration body:
 

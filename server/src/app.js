@@ -18,6 +18,7 @@ import { createSlaRouter } from './modules/sla/routes.js';
 import { createAnalyticsRouter } from './modules/analytics/routes.js';
 import { createAuditRouter } from './modules/audit/routes.js';
 import { createAttachmentDownloadRouter } from './modules/attachments/routes.js';
+import { createCronRouter } from './modules/cron/routes.js';
 import { ticketWriteRateLimiter } from './middleware/rateLimit.js';
 import { notificationService } from './services/notification.js';
 
@@ -29,6 +30,9 @@ export function createApp({
   notifier = notificationService,
   uploadDirectory,
   attachmentScanner,
+  attachmentStore,
+  cronSecret,
+  retentionRunner,
   staticDirectory = webDist,
   serveStatic = env.NODE_ENV === 'production'
 } = {}) {
@@ -56,6 +60,12 @@ export function createApp({
     }
   });
 
+  app.use('/api/cron', createCronRouter({
+    database,
+    ...(cronSecret !== undefined ? { secret: cronSecret } : {}),
+    ...(retentionRunner !== undefined ? { runner: retentionRunner } : {})
+  }));
+
   const requireAuth = createRequireAuth(database);
   app.use('/api/auth', createAuthRouter({ database, requireAuth, notifier }));
   app.use('/api/users', requireAuth, createUsersRouter({ database }));
@@ -65,14 +75,16 @@ export function createApp({
     writeRateLimiter,
     notifier,
     ...(uploadDirectory !== undefined ? { uploadDirectory } : {}),
-    ...(attachmentScanner !== undefined ? { attachmentScanner } : {})
+    ...(attachmentScanner !== undefined ? { attachmentScanner } : {}),
+    ...(attachmentStore !== undefined ? { attachmentStore } : {})
   }));
   app.use('/api/sla', requireAuth, createSlaRouter({ database, writeRateLimiter }));
   app.use('/api/dashboard', requireAuth, createAnalyticsRouter({ database }));
   app.use('/api/audit-logs', requireAuth, createAuditRouter({ database }));
   app.use('/api/attachments', requireAuth, createAttachmentDownloadRouter({
     database,
-    ...(uploadDirectory !== undefined ? { directory: uploadDirectory } : {})
+    ...(uploadDirectory !== undefined ? { directory: uploadDirectory } : {}),
+    ...(attachmentStore !== undefined ? { store: attachmentStore } : {})
   }));
 
   app.use('/api', notFound);
@@ -91,5 +103,3 @@ export function createApp({
 
   return app;
 }
-
-export default createApp();

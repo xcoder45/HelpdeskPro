@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 export function createPool(connectionString = env.DATABASE_URL) {
   return new pg.Pool({
     connectionString,
-    max: 10,
+    max: env.DATABASE_POOL_MAX,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000
   });

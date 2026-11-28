@@ -5,18 +5,32 @@ const originalJwtExpiresIn = process.env.JWT_EXPIRES_IN;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalJwtSecret = process.env.JWT_SECRET;
 const originalAppDatabasePassword = process.env.APP_DATABASE_PASSWORD;
+const vercelKeys = [
+  'VERCEL_ENV',
+  'REDIS_URL',
+  'CRON_SECRET',
+  'ATTACHMENT_STORAGE',
+  'BLOB_STORE_ID',
+  'BLOB_READ_WRITE_TOKEN',
+  'AV_ENABLED',
+  'CLAMAV_HOST',
+  'DATABASE_POOL_MAX',
+  'MAX_UPLOAD_BYTES'
+];
+const originalVercelEnv = Object.fromEntries(vercelKeys.map((key) => [key, process.env[key]]));
+
+function restoreEnvironment(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 afterEach(() => {
-  if (originalSmtpFrom === undefined) delete process.env.SMTP_FROM;
-  else process.env.SMTP_FROM = originalSmtpFrom;
-  if (originalJwtExpiresIn === undefined) delete process.env.JWT_EXPIRES_IN;
-  else process.env.JWT_EXPIRES_IN = originalJwtExpiresIn;
-  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-  else process.env.NODE_ENV = originalNodeEnv;
-  if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
-  else process.env.JWT_SECRET = originalJwtSecret;
-  if (originalAppDatabasePassword === undefined) delete process.env.APP_DATABASE_PASSWORD;
-  else process.env.APP_DATABASE_PASSWORD = originalAppDatabasePassword;
+  restoreEnvironment('SMTP_FROM', originalSmtpFrom);
+  restoreEnvironment('JWT_EXPIRES_IN', originalJwtExpiresIn);
+  restoreEnvironment('NODE_ENV', originalNodeEnv);
+  restoreEnvironment('JWT_SECRET', originalJwtSecret);
+  restoreEnvironment('APP_DATABASE_PASSWORD', originalAppDatabasePassword);
+  for (const key of vercelKeys) restoreEnvironment(key, originalVercelEnv[key]);
   vi.resetModules();
 });
 
@@ -80,5 +94,67 @@ describe('production application database password', () => {
     process.env.JWT_SECRET = 'b7f4c2a91e6d8305fa2c9471be603d8e';
     process.env.APP_DATABASE_PASSWORD = 'local_dev_change_me';
     await expect(import('../../src/config/env.js?app-db-placeholder')).rejects.toThrow(/APP_DATABASE_PASSWORD/);
+  });
+});
+
+describe('Vercel configuration', () => {
+  function configureVercel() {
+    process.env.NODE_ENV = 'production';
+    process.env.VERCEL_ENV = 'production';
+    process.env.JWT_SECRET = 'b7f4c2a91e6d8305fa2c9471be603d8e';
+    process.env.APP_DATABASE_PASSWORD = '9d1c2b7a4f8e6d30c5b2a17e4f9c8d60';
+    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.CRON_SECRET = 'd8e7c6b5a4938271f0e9d8c7b6a59483';
+    process.env.ATTACHMENT_STORAGE = 'blob';
+    process.env.BLOB_READ_WRITE_TOKEN = 'vercel_blob_token_placeholder';
+    process.env.AV_ENABLED = 'true';
+    process.env.CLAMAV_HOST = 'clamd.example.com';
+    process.env.MAX_UPLOAD_BYTES = '4194304';
+  }
+
+  it('accepts a complete deployment and applies serverless defaults', async () => {
+    configureVercel();
+    const { env } = await import('../../src/config/env.js?vercel-valid');
+
+    expect(env.DATABASE_POOL_MAX).toBe(1);
+    expect(env.MAX_UPLOAD_BYTES).toBe(4_194_304);
+    expect(env.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it.each([
+    [
+      'REDIS_URL',
+      /REDIS_URL/,
+      { REDIS_URL: undefined },
+      () => import('../../src/config/env.js?vercel-redis')
+    ],
+    [
+      'CRON_SECRET',
+      /CRON_SECRET/,
+      { CRON_SECRET: undefined },
+      () => import('../../src/config/env.js?vercel-cron')
+    ],
+    [
+      'blob storage',
+      /ATTACHMENT_STORAGE/,
+      { ATTACHMENT_STORAGE: 'local' },
+      () => import('../../src/config/env.js?vercel-blob')
+    ],
+    [
+      'antivirus',
+      /AV_ENABLED/,
+      { AV_ENABLED: 'false' },
+      () => import('../../src/config/env.js?vercel-av')
+    ],
+    [
+      'ClamAV host',
+      /CLAMAV_HOST/,
+      { CLAMAV_HOST: undefined },
+      () => import('../../src/config/env.js?vercel-clamav')
+    ]
+  ])('requires %s', async (_label, messagePattern, overrides, load) => {
+    configureVercel();
+    for (const [key, value] of Object.entries(overrides)) restoreEnvironment(key, value);
+    await expect(load()).rejects.toThrow(messagePattern);
   });
 });
